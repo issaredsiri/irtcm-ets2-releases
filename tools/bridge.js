@@ -93,27 +93,29 @@ function distToRoute(points, x, z) {
   return best;
 }
 
-// the dashboard fields friends' phones (or this player on Vercel) need for the Drive / Job tabs
-function dashOf(d) {
-  const t = d.truck, j = d.job, n = d.navigation, tr = d.trailer;
-  return {
-    game: { time: d.game.time, paused: d.game.paused, nextRestStopTime: d.game.nextRestStopTime },
-    truck: {
-      make: t.make, model: t.model, speed: r1(t.speed), displayedGear: t.displayedGear, shifterType: t.shifterType,
-      reverseGears: t.reverseGears, engineRpm: Math.round(t.engineRpm), engineRpmMax: t.engineRpmMax,
-      fuel: r1(t.fuel), fuelCapacity: t.fuelCapacity, fuelAverageConsumption: t.fuelAverageConsumption,
-      fuelWarningFactor: t.fuelWarningFactor, fuelWarningOn: t.fuelWarningOn, odometer: r1(t.odometer),
-      cruiseControlOn: t.cruiseControlOn, cruiseControlSpeed: Math.round(t.cruiseControlSpeed),
-      blinkerLeftOn: t.blinkerLeftOn, blinkerRightOn: t.blinkerRightOn, parkBrakeOn: t.parkBrakeOn,
-      lightsBeamLowOn: t.lightsBeamLowOn, lightsBeamHighOn: t.lightsBeamHighOn,
-    },
-    trailer: { attached: tr.attached, name: tr.name, id: tr.id, mass: Math.round(tr.mass), wear: r1(tr.wear * 100) / 100 },
-    job: j && j.destinationCity ? {
-      income: j.income, deadlineTime: j.deadlineTime, remainingTime: j.remainingTime,
-      sourceCity: j.sourceCity, sourceCompany: j.sourceCompany, destinationCity: j.destinationCity, destinationCompany: j.destinationCompany,
-    } : null,
-    navigation: { estimatedTime: n.estimatedTime, estimatedDistance: Math.round(n.estimatedDistance), speedLimit: n.speedLimit },
-  };
+// Dashboard data for every tab (Drive / Job / Truck) on phones that only see this player through the room.
+// full = every scalar field of truck / trailer / job (sent every FULL_MS: wear, temperatures... change slowly);
+// otherwise only what changes every second. The page keeps the last full copy and overlays the light ones.
+const FULL_MS = 5000;
+const FAST_TRUCK = ['speed', 'engineRpm', 'displayedGear', 'gameSteer', 'gameThrottle', 'gameBrake', 'gameClutch',
+  'blinkerLeftOn', 'blinkerRightOn', 'cruiseControlOn', 'cruiseControlSpeed', 'parkBrakeOn', 'motorBrakeOn', 'retarderBrake',
+  'lightsBeamLowOn', 'lightsBeamHighOn', 'lightsBeaconOn', 'fuel', 'airPressure'];
+function scalars(o) {
+  const out = {};
+  for (const [k, v] of Object.entries(o || {})) {
+    if (typeof v === 'number') out[k] = Math.round(v * 1000) / 1000;
+    else if (typeof v === 'string' || typeof v === 'boolean') out[k] = v;   // objects (placement, acceleration...) skipped
+  }
+  return out;
+}
+function dashOf(d, full) {
+  const t = scalars(d.truck), n = d.navigation;
+  const nav = { estimatedTime: n.estimatedTime, estimatedDistance: Math.round(n.estimatedDistance), speedLimit: n.speedLimit };
+  const game = { time: d.game.time, paused: d.game.paused, nextRestStopTime: d.game.nextRestStopTime };
+  if (full) return { full: true, game, truck: t, trailer: scalars(d.trailer), job: scalars(d.job), navigation: nav };
+  const fast = {};
+  for (const k of FAST_TRUCK) if (k in t) fast[k] = t[k];
+  return { game, truck: fast, navigation: nav };
 }
 
 // ---------- main ----------
@@ -150,8 +152,8 @@ function dashOf(d) {
     }
   }
 
-  let truck = null, telemetryOk = false, gameOk = false;
-  let lastPos = 0, lastSent = null;
+  let truck = null, job = null, telemetryOk = false, gameOk = false;
+  let lastPos = 0, lastSent = null, lastFull = 0;
   async function tickPos() {
     try {
       const d = await getJson(TELEMETRY);
@@ -160,13 +162,18 @@ function dashOf(d) {
       if (!gameOk) return;
       const pl = d.truck.placement;
       truck = { x: pl.x, y: pl.y, z: pl.z, h: pl.heading, s: Math.abs(d.truck.speed) };
+      // active job (the old plugin never clears it, but the game's nav distance drops to 0 once it is done)
+      const j = d.job, navM = d.navigation ? d.navigation.estimatedDistance : 0;
+      job = j && j.destinationCity && navM > 0 ? { city: j.destinationCity, company: j.destinationCompany, nav: Math.round(navM) } : null;
       const now = Date.now();
       const parked = truck.s < 1 || d.game.paused;
       const moved = !lastSent || Math.hypot(truck.x - lastSent.x, truck.z - lastSent.z) > 1;
       if (now - lastPos < (parked && !moved ? PARKED_MS : POS_MS)) return;
       lastPos = now; lastSent = truck;
-      await broadcast('pos', { name: cfg.name, x: r1(pl.x), z: r1(pl.z), h: Math.round(pl.heading * 10000) / 10000, s: r1(truck.s),
-                               p: !!d.game.paused, t: now, d: dashOf(d) });
+      const full = now - lastFull >= FULL_MS;
+      const ok = await broadcast('pos', { name: cfg.name, x: r1(pl.x), z: r1(pl.z), h: Math.round(pl.heading * 10000) / 10000, s: r1(truck.s),
+                                          p: !!d.game.paused, t: now, d: dashOf(d, full) });
+      if (ok && full) lastFull = now;
     } catch {
       telemetryOk = false; gameOk = false;
     }
@@ -178,22 +185,35 @@ function dashOf(d) {
       const g = await getJson(ROUTE + '/gps');
       routeOk = true;
       const wps = g && g.ok ? (g.ahead || []).map(w => [Math.round(w.x), Math.round(w.z)]) : [];
-      const savedAt = g && g.ok ? g.savedAt : 0;
+      let savedAt = g && g.ok ? g.savedAt : 0;
       const now = Date.now();
-      let need = !plan || plan.savedAt !== savedAt;
+      // no waypoints of our own but a job (e.g. driving the job's GPS route, or convoy host): share the job route
+      const jobKey = !wps.length && job ? `${job.city}|${job.company}` : '';
+      const gpsSavedAt = savedAt;
+      let need = !plan || plan.gpsSavedAt !== gpsSavedAt || (plan.jobKey || '') !== jobKey;
       // off our own route (detour) -> route again from here, at most every 30 s
       if (!need && plan.route && truck && now - lastRoute > 30000 && distToRoute(plan.route, truck.x, truck.z) > 200) need = true;
       if (need && truck) {
-        let r = null;
-        if (wps.length) {
-          try {
-            const q = `x=${truck.x.toFixed(1)}&z=${truck.z.toFixed(1)}&h=${truck.h.toFixed(4)}&via=` + wps.map(w => w.join(',')).join(';');
-            const d = await getJson(`${ROUTE}/route?${q}`, 20000);
+        let r = null, planWps = wps, label = '';
+        const from = `x=${truck.x.toFixed(1)}&z=${truck.z.toFixed(1)}&h=${truck.h.toFixed(4)}`;
+        try {
+          if (wps.length) {
+            const d = await getJson(`${ROUTE}/route?${from}&via=` + wps.map(w => w.join(',')).join(';'), 20000);
             if (d.ok && d.points && d.points.length > 1) r = slimRoute(d);
-          } catch { /* no road route: friends still get the waypoints */ }
-        }
+          } else if (jobKey) {
+            const d = await getJson(`${ROUTE}/route?${from}&city=${encodeURIComponent(job.city)}&company=${encodeURIComponent(job.company)}&nav=${job.nav}`, 20000);
+            if (d.ok && d.points && d.points.length > 1) {
+              r = slimRoute(d);
+              planWps = [r.points[r.points.length - 1]];          // the depot = destination pin
+              label = `${job.company} · ${job.city}`;
+              // a newly taken job counts as "saved now" for picking the group route
+              savedAt = plan && plan.jobKey === jobKey ? plan.savedAt : Math.max(savedAt, now);
+            }
+          }
+        } catch { /* no road route: friends still get the waypoints */ }
         lastRoute = now;
-        plan = { name: cfg.name, savedAt, wps, routeAt: now, route: r ? r.points : null, steps: r ? r.steps : [], stops: r ? r.stops : [] };
+        plan = { name: cfg.name, savedAt, gpsSavedAt, wps: planWps, jobKey, label, routeAt: now,
+                 route: r ? r.points : null, steps: r ? r.steps : [], stops: r ? r.stops : [] };
         // very long routes: thin out until the message fits
         while (plan.route && JSON.stringify(plan).length > MAX_PLAN_BYTES && plan.route.length > 50) {
           plan.route = plan.route.filter((_, i) => i % 2 === 0 || i === plan.route.length - 1);

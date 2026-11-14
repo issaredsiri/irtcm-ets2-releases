@@ -306,7 +306,7 @@
           blinkerLeftOn: blink, blinkerRightOn: false, lightsBeamLowOn: true, lightsBeamHighOn: false, lightsBeaconOn: false
         },
         trailer: { attached: true, name: 'Excavator', mass: 22000, wear: 0.04 },
-        job: { income: 12850, deadlineTime: '0001-01-09T03:34:00Z', remainingTime: '0001-01-01T06:25:00Z',
+        job: params.has('guest') ? EMPTY_JOB : { income: 12850, deadlineTime: '0001-01-09T03:34:00Z', remainingTime: '0001-01-01T06:25:00Z',
                sourceCity: 'Linz', sourceCompany: 'DPD', destinationCity: 'Salzburg', destinationCompany: 'Renat' },
         navigation: { estimatedTime: '0001-01-01T03:01:40Z', estimatedDistance: 62500 - s * 18, speedLimit: 80 }
       });
@@ -390,13 +390,20 @@
     navigation: { estimatedTime: '', estimatedDistance: 0, speedLimit: 0 }
   };
   function merge(a, b) { var o = {}, k; for (k in a) o[k] = a[k]; for (k in b || {}) if (b[k] !== undefined && b[k] !== null) o[k] = b[k]; return o; }
-  function fromRoom(p) {
-    var d = p.d || {};
-    var truck = merge(DEF.truck, d.truck);
+  // The bridge sends every field (wear, temperatures, job, trailer...) every 5 s ("full") and only the
+  // fast-changing ones in between: keep the last full copy per member and lay the light updates over it.
+  var dashCache = {};
+  function fromRoom(name, p) {
+    var d = p.d || {}, c = dashCache[name] || (dashCache[name] = { game: {}, truck: {}, trailer: {}, job: {}, navigation: {} });
+    ['game', 'truck', 'trailer', 'job', 'navigation'].forEach(function (k) {
+      if (d.full) c[k] = merge({}, d[k]);          // full snapshot replaces (a finished job really clears)
+      else c[k] = merge(c[k], d[k]);
+    });
+    var truck = merge(DEF.truck, c.truck);
     truck.placement = { x: p.x, y: 0, z: p.z, heading: p.h };
     return {
-      game: merge(DEF.game, d.game), truck: truck, trailer: merge(DEF.trailer, d.trailer),
-      job: d.job || null, navigation: merge(DEF.navigation, d.navigation)
+      game: merge(DEF.game, c.game), truck: truck, trailer: merge(DEF.trailer, c.trailer),
+      job: c.job && c.job.destinationCity ? c.job : null, navigation: merge(DEF.navigation, c.navigation)
     };
   }
 
@@ -420,7 +427,7 @@
       return;
     }
     window.TruckMap.setSelfPlan(me.plan);
-    if (me.pos.t !== lastSelfT) { lastSelfT = me.pos.t; handle(fromRoom(me.pos)); }
+    if (me.pos.t !== lastSelfT) { lastSelfT = me.pos.t; handle(fromRoom(me.name, me.pos)); }
   }
 
   // ?demo&friends: a fake room (same API as RoomLink) to preview the multi-player map without Supabase

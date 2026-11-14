@@ -595,7 +595,35 @@
         return { x: w.x, z: w.z, final: last, n: i + 1, label: last ? (isJob ? jobDest.label : 'ปลายทาง') : 'จุดแวะ ' + (i + 1) };
       });
     }
-    return jobDest ? [{ x: jobDest.x, z: jobDest.z, final: true, label: jobDest.label, job: true }] : [];
+    if (jobDest) return [{ x: jobDest.x, z: jobDest.z, final: true, label: jobDest.label, job: true }];
+    // following the group's route (no waypoints / job of our own): its pins
+    if (route && route.group) {
+      var gp = route.group.plan, n = gp.wps.length;
+      return gp.wps.map(function (w, i) {
+        var last = i === n - 1;
+        return { x: w[0], z: w[1], final: last, n: i + 1, label: last ? (gp.label || 'ปลายทาง') + ' (' + route.group.name + ')' : 'จุดแวะ ' + (i + 1) };
+      });
+    }
+    return [];
+  }
+
+  // No route of our own (no waypoints, no job), e.g. a convoy guest whose game never saves: drive by the
+  // group's route instead (pins, blue line and turn banner, matched to our position along it).
+  function followGroup() {
+    var L = room ? room.leader() : null;
+    if (!L || L.name === selfName || !L.plan || !L.plan.route || L.plan.route.length < 2) return false;
+    var key = 'group|' + L.name + '|' + L.plan.savedAt + '|' + L.plan.routeAt;
+    if (routeKey !== key) {
+      routeKey = key;
+      route = buildRoute(key, L.plan.route, L.plan.steps, L.plan.stops, true);
+      routeIdx = 0;
+    }
+    route.group = L;
+    var n = nearestOnRoute(target.x, target.z);
+    routeIdx = n.idx;
+    routeBefore = n.beforeStart && n.dist > 15;
+    showTurn(nextStep());
+    return true;
   }
 
   // ---------- road routing (routing/route-server, port 25556) ----------
@@ -656,6 +684,7 @@
     var p = selfPlan;
     if (!p || !p.wps || !p.wps.length) {
       if (gps.ok) gps = { ok: false, savedAt: 0, ahead: [], reached: 0 };
+      if (followGroup()) return;
       route = null; routeKey = ''; showTurn(null); return;
     }
     if (gps.savedAt !== p.savedAt) gps = { ok: true, savedAt: p.savedAt, ahead: p.wps.map(function (w) { return { x: w[0], z: w[1] }; }), reached: 0 };
@@ -676,7 +705,10 @@
   function updateRoute(job, nav) {
     if (remote) return updateRemoteRoute(nav);
     var t = routeTarget(job, nav), now = Date.now();
-    if (!t) { route = null; routeKey = ''; showTurn(null); return; }
+    if (!t) {
+      if (followGroup()) return;
+      route = null; routeKey = ''; showTurn(null); return;
+    }
     var need = t.key !== routeKey;
     if (route && !need) {
       var n = nearestOnRoute(target.x, target.z);
@@ -838,7 +870,7 @@
   function groupLeader() { return room ? room.leader() : null; }
   function ownRouteDiffers() {
     var L = groupLeader();
-    if (!L || L.name === selfName || !route || !route.gps) return false;
+    if (!L || L.name === selfName || !route || !route.gps || route.group) return false;
     return !window.RoomLink.sameWps(myWps(), L.plan.wps);
   }
   function memberDiffers(m, L) {
@@ -909,10 +941,31 @@
     });
     Object.keys(friendView).forEach(function (k) { if (!seen[k]) delete friendView[k]; });
   }
+  // off-screen friend: small coloured arrow on the screen edge pointing at them, with name + distance
+  function drawFriendEdge(v, p, s) {
+    var side = anchor(s).x * 2 - s.w;                  // landscape side panel width (0 in portrait)
+    var L = side + 24, R = s.w - 70, Tp = side ? 24 : edgeTop(), B = side ? s.h - 24 : s.h - (wrap.classList.contains('room') ? 190 : 150);
+    var c = toScreen(pos.x, pos.z, s);
+    var ox = Math.max(L + 1, Math.min(R - 1, c.x)), oy = Math.max(Tp + 1, Math.min(B - 1, c.y));
+    var ang = Math.atan2(p.y - oy, p.x - ox), dx = Math.cos(ang), dy = Math.sin(ang);
+    var k = Math.min(dx > 0 ? (R - ox) / dx : dx < 0 ? (L - ox) / dx : Infinity,
+                     dy > 0 ? (B - oy) / dy : dy < 0 ? (Tp - oy) / dy : Infinity);
+    var ex = ox + dx * k, ey = oy + dy * k, col = v.online ? v.color : '#9aa0a6';
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.save(); ctx.rotate(ang);
+    ctx.fillStyle = col; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-7, -9); ctx.lineTo(-3, 0); ctx.lineTo(-7, 9); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    var text = v.name + ' · ' + fmtKm(Math.hypot(v.x - pos.x, v.z - pos.z));
+    label(text, Math.max(L + 40 - ex, Math.min(R - 40 - ex, 0)), ey < s.h / 2 ? 24 : -20, col);
+    ctx.restore();
+  }
   function drawFriends(s) {
     Object.keys(friendView).forEach(function (k) {
       var v = friendView[k], p = toScreen(v.x, v.z, s);
-      if (p.x < -40 || p.y < -40 || p.x > s.w + 40 || p.y > s.h + 40) return;
+      if (p.x < -10 || p.y < -10 || p.x > s.w + 10 || p.y > s.h + 10) { drawFriendEdge(v, p, s); return; }
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.save();
@@ -1106,7 +1159,8 @@
         applyTheme();
         toast('แผนที่: ' + { auto: 'อัตโนมัติตามเวลาในเกม', day: 'กลางวัน', night: 'กลางคืน' }[themeMode]);
       });
-      if (DEMO) demoGps(); else { pollGps(); setInterval(pollGps, 3000); }
+      // ?demo&guest: no waypoints of our own (like a convoy guest) -> follows the group route
+      if (DEMO) { if (!/[?&]guest\b/.test(location.search)) demoGps(); } else { pollGps(); setInterval(pollGps, 3000); }
       headingUp = storeGet('mapHeadingUp', '1') === '1';
       gameOverride = storeGet('mapGame', '') || null;
       compassEl.classList.toggle('on', headingUp);
@@ -1156,7 +1210,9 @@
       updateRoute(data.job, lastNavMeters);
       var tl = targets(), fin = tl[tl.length - 1];
       if (destEl) {
-        var dtxt = fin ? fin.label : '', vtxt = route && route.gps ? 'ตาม GPS ในเกม' + (tl.length > 1 ? ' · แวะ ' + (tl.length - 1) + ' จุด' : '') : (route ? 'ไปยังจุดส่งงาน' : '');
+        var dtxt = fin ? fin.label : '';
+        var vtxt = route && route.group ? 'ตามเส้นกลุ่มของ ' + route.group.name
+          : route && route.gps ? 'ตาม GPS ในเกม' + (tl.length > 1 ? ' · แวะ ' + (tl.length - 1) + ' จุด' : '') : (route ? 'ไปยังจุดส่งงาน' : '');
         if (destEl.textContent !== dtxt) destEl.textContent = dtxt;
         if (viaEl.textContent !== vtxt) viaEl.textContent = vtxt;
       }
