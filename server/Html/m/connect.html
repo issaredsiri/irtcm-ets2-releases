@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Phone</title>
+<style>
+  :root { --bg:#0b0e13; --card:#141922; --card2:#1b2230; --line:#262f3f; --text:#e8edf5; --muted:#7d8899; --accent:#22d3ee; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+         font-family: system-ui, "Segoe UI", "Noto Sans Thai", sans-serif;
+         display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px 16px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:24px; padding:28px; text-align:center; max-width:460px; width:100%; }
+  .box.hidden { display:none; }
+  h1 { margin:0 0 6px; font-size:22px; }
+  h2 { margin:0 0 6px; font-size:18px; }
+  p { margin:0; color:var(--muted); }
+  .qr { background:#fff; border-radius:16px; padding:16px; margin:24px auto 16px; width:max-content; max-width:100%; }
+  .qr svg, .qr img { display:block; width:280px; height:280px; max-width:100%; }
+  .url { font-family: ui-monospace, Consolas, monospace; font-size:16px; color:var(--accent); word-break:break-all; user-select:all; }
+  .others { margin-top:20px; font-size:13px; color:var(--muted); }
+  .others a { color:var(--text); margin:0 6px; }
+  .err { color:#f43f5e; }
+  form { display:flex; flex-direction:column; gap:12px; margin-top:18px; text-align:left; }
+  label { font-size:13px; color:var(--muted); display:flex; flex-direction:column; gap:6px; }
+  input { font:inherit; font-size:17px; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card2); color:var(--text); }
+  input#room { font-family: ui-monospace, Consolas, monospace; letter-spacing:.06em; text-transform:uppercase; }
+  button { font:inherit; font-weight:700; padding:13px; border-radius:12px; border:0; background:var(--accent); color:#04232a; cursor:pointer; }
+  .hint { font-size:12px; color:var(--muted); }
+  /* landscape / wide: QR and room form side by side, QR sized to the height */
+  @media (orientation: landscape) and (min-width: 700px) {
+    body { flex-direction:row; align-items:center; flex-wrap:nowrap; padding:12px 16px; }
+    .box { flex:1 1 0; min-width:0; max-width:420px; padding:20px 24px; }
+    h1 { font-size:19px; }
+    .url { font-size:13px; }
+    .qr { margin:14px auto 10px; padding:12px; }
+    .qr svg, .qr img { width:min(280px, calc(100dvh - 210px)); height:auto; aspect-ratio:1; min-width:140px; }
+    form { margin-top:12px; gap:10px; }
+    input { padding:10px 12px; }
+  }
+  @media (max-width: 380px) { .box { padding:20px 16px; } h1 { font-size:19px; } }
+</style>
+</head>
+<body>
+<div class="box hidden" id="lanBox">
+  <h1>สแกนเพื่อเปิด Dashboard บนมือถือ</h1>
+  <p>มือถือต้องต่อ Wi-Fi วงเดียวกับ PC นี้</p>
+  <div class="qr" id="qr"></div>
+  <div class="url" id="url"></div>
+  <div class="others" id="others"></div>
+</div>
+
+<div class="box" id="roomBox">
+  <h2>เข้าห้อง (เล่นกับเพื่อน)</h2>
+  <p>เปิดได้จากทุกที่ ไม่ต้องอยู่ Wi-Fi เดียวกัน</p>
+  <form id="roomForm">
+    <label>ชื่อคนขับ (ตรงกับชื่อใน bridge บน PC) <input id="name" maxlength="24" autocomplete="nickname" placeholder="เว้นว่าง = ดูอย่างเดียว"></label>
+    <label>Room code <input id="room" required placeholder="XXXX-XXXX-XXXX" autocomplete="off"></label>
+    <button type="submit">เปิดแมพ</button>
+    <div class="hint" id="cfgHint"></div>
+  </form>
+</div>
+<script src="vendor/qrcode.min.js"></script>
+<script src="room-config.js"></script>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  function storeGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+
+  // ---------- room form ----------
+  var nameEl = document.getElementById('name'), roomEl = document.getElementById('room');
+  nameEl.value = params.get('name') || storeGet('name');
+  roomEl.value = params.get('room') || storeGet('room');
+  var rc = window.ROOM_CONFIG || {};
+  if (!rc.supabaseUrl || !rc.supabaseAnonKey) {
+    document.getElementById('cfgHint').innerHTML = '<span class="err">ยังไม่ได้ใส่ Supabase URL / anon key ใน room-config.js</span>';
+  }
+  document.getElementById('roomForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = 'index.html?tab=map&room=' + encodeURIComponent(roomEl.value.trim().toUpperCase()) + '&name=' + encodeURIComponent(nameEl.value.trim());
+    location.href = q;
+  });
+
+  // ---------- LAN QR (opened by Start Dashboard.bat on the PC) ----------
+  var port = location.port || '25555';
+  // launcher passes ?ips=192.168.1.5,10.0.0.2 ; otherwise use the host we were opened on
+  var ips = (params.get('ips') || '').split(',').filter(Boolean);
+  if (!ips.length && location.protocol === 'http:' && !/^(localhost|127\.)/.test(location.hostname)) ips = [location.hostname];
+  if (!ips.length) return;
+  document.getElementById('lanBox').classList.remove('hidden');
+
+  // the bridge's name + room ride along, so the phone joins the room too
+  var extra = '';
+  if (params.get('room')) extra += '&room=' + encodeURIComponent(params.get('room'));
+  if (params.get('name')) extra += '&name=' + encodeURIComponent(params.get('name'));
+  var qrEl = document.getElementById('qr'), urlEl = document.getElementById('url'), othersEl = document.getElementById('others');
+
+  function show(ip) {
+    var url = 'http://' + ip + ':' + port + '/m/index.html' + (extra ? '?' + extra.slice(1) : '');
+    var qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    qrEl.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 0, scalable: true });
+    urlEl.textContent = url;
+    othersEl.innerHTML = ips.length > 1
+      ? 'IP อื่น: ' + ips.filter(function (x) { return x !== ip; }).map(function (x) { return '<a href="#" data-ip="' + x + '">' + x + '</a>'; }).join('')
+      : '';
+  }
+  othersEl.addEventListener('click', function (e) {
+    var ip = e.target.getAttribute('data-ip');
+    if (ip) { e.preventDefault(); show(ip); }
+  });
+  show(ips[0]);
+})();
+</script>
+</body>
+</html>

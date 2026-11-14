@@ -1,0 +1,9 @@
+{
+  "name": "Truck Dash",
+  "short_name": "Truck Dash",
+  "start_url": "index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13"
+}

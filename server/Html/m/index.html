@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0e13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="app-icon.png">
+<title>Truck Dash</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="status"><span id="conn" class="dot"></span><span id="connText">Connecting…</span></div>
+  <div id="gameTime" class="game-time">--</div>
+  <div class="actions">
+    <button id="btnUnits" class="chip" aria-label="Toggle units">km/h</button>
+    <button id="btnFull" class="icon-btn" aria-label="Fullscreen">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- DRIVE -->
+  <section id="tab-drive" class="tab active">
+    <div class="indicators top">
+      <span id="iBlinkL" class="ind blink"><svg viewBox="0 0 24 24"><path d="M10 5 3 12l7 7v-4h11V9H10z"/></svg></span>
+      <span id="iPark" class="ind red">P</span>
+      <span id="iCruise" class="ind green">CC <b id="ccSpeed"></b></span>
+      <span id="iBlinkR" class="ind blink"><svg viewBox="0 0 24 24"><path d="M14 5l7 7-7 7v-4H3V9h11z"/></svg></span>
+    </div>
+
+    <div class="gauge-wrap">
+      <svg class="gauge" viewBox="0 0 300 300">
+        <defs>
+          <linearGradient id="rpmGrad" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="var(--accent)"/>
+            <stop offset=".75" stop-color="var(--accent2)"/>
+            <stop offset="1" stop-color="var(--danger)"/>
+          </linearGradient>
+        </defs>
+        <path class="track" d="M57.6 242.4 A130 130 0 1 1 242.4 242.4"/>
+        <path id="rpmArc" class="rpm" d="M57.6 242.4 A130 130 0 1 1 242.4 242.4" stroke="url(#rpmGrad)"/>
+        <g id="ticks"></g>
+      </svg>
+      <div class="gauge-center">
+        <div id="speed" class="speed">0</div>
+        <div id="speedUnit" class="unit">km/h</div>
+        <div class="gear-row">
+          <div id="gear" class="gear">N</div>
+        </div>
+        <div id="rpm" class="rpm-text">0 rpm</div>
+      </div>
+      <div id="limit" class="limit hidden"><span id="limitVal">--</span></div>
+    </div>
+
+    <div class="indicators">
+      <span id="iLow" class="ind green" title="Low beam">
+        <svg viewBox="0 0 24 24"><path d="M11 6c-4 0-6 2.7-6 6s2 6 6 6zM14 8l7 2M14 12l7 2M14 16l7 2"/></svg></span>
+      <span id="iHigh" class="ind blue" title="High beam">
+        <svg viewBox="0 0 24 24"><path d="M11 6c-4 0-6 2.7-6 6s2 6 6 6zM14 8h7M14 12h7M14 16h7"/></svg></span>
+      <span id="iMotor" class="ind amber" title="Engine brake">EB</span>
+      <span id="iRetarder" class="ind amber" title="Retarder">R<b id="retStep">0</b></span>
+      <span id="iBeacon" class="ind amber" title="Beacon">
+        <svg viewBox="0 0 24 24"><path d="M7 18v-6a5 5 0 0 1 10 0v6zM5 20h14M12 3v2M4.5 6.5 6 8M19.5 6.5 18 8"/></svg></span>
+      <span id="iWipers" class="ind green" title="Wipers">
+        <svg viewBox="0 0 24 24"><path d="M3 15a12 12 0 0 1 18 0M12 18 7 8"/></svg></span>
+      <span id="iFuelW" class="ind amber" title="Low fuel">
+        <svg viewBox="0 0 24 24"><path d="M5 20V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v15M4 20h11M5 10h9M14 8l3 2v7a1.5 1.5 0 0 0 3 0V8l-2-2"/></svg></span>
+      <span id="iAirW" class="ind red" title="Air pressure">AIR</span>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-h">Fuel <span id="fuelPct" class="muted"></span></div>
+        <div class="bar"><i id="fuelBar"></i></div>
+        <div class="card-f"><span id="fuelL">-- L</span><span id="fuelRange" class="muted">-- km</span></div>
+      </div>
+      <div class="card">
+        <div class="card-h">Destination</div>
+        <div id="navDist" class="big">--</div>
+        <div class="card-f"><span id="navTime" class="muted">--</span></div>
+      </div>
+    </div>
+
+    <div class="card job-mini" id="jobMini">
+      <div class="route">
+        <span id="jmFrom">--</span>
+        <svg viewBox="0 0 24 24"><path d="M4 12h15M14 6l6 6-6 6"/></svg>
+        <span id="jmTo">--</span>
+      </div>
+      <div class="muted" id="jmRemain">No job</div>
+    </div>
+  </section>
+
+  <!-- MAP -->
+  <section id="tab-map" class="tab">
+    <div id="mapWrap" class="map-wrap">
+      <canvas id="mapCanvas"></canvas>
+
+      <!-- top: next maneuver (green banner) + notices -->
+      <div class="map-top">
+        <div id="mapTurn" class="map-turn hidden">
+          <div id="mapTurnIcon" class="turn-icon"></div>
+          <div class="turn-body"><b id="mapTurnDist">--</b><span id="mapTurnText"></span></div>
+        </div>
+        <div id="mapNotice" class="map-notice hidden"></div>
+      </div>
+
+      <!-- right: floating round buttons -->
+      <div class="map-fabs">
+        <button id="mapCompass" class="map-btn" aria-label="Heading up / North up"><svg viewBox="0 0 24 24"><path class="needle-n" d="M12 3l4 9h-8z"/><path class="needle-s" d="M12 21l-4-9h8z"/></svg></button>
+        <button id="mapTheme" class="map-btn" aria-label="Day / night map"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5"/></svg></button>
+        <button id="mapGame" class="map-btn txt" aria-label="Switch map">ETS2</button>
+        <div class="zoom-pair">
+          <button id="mapZoomIn" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button id="mapZoomOut" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        </div>
+      </div>
+
+      <!-- bottom-left: speed bubble + limit sign -->
+      <div class="map-hud">
+        <div class="map-speed"><b id="mSpeed">0</b><span id="mUnit">km/h</span></div>
+        <div id="mLimit" class="limit small-limit hidden"><span id="mLimitVal">--</span></div>
+      </div>
+      <button id="mapRecenter" class="map-recenter hidden"><svg viewBox="0 0 24 24"><path d="M12 3l7 18-7-4-7 4z"/></svg>กลับตำแหน่งรถ</button>
+
+      <!-- bottom sheet: trip time / distance · arrival / destination -->
+      <div id="mapSheet" class="map-sheet">
+        <div class="sheet-trip"><b id="mEta">--</b><span id="mDist">--</span></div>
+        <div class="sheet-dest"><span id="mDest"></span><small id="mVia"></small></div>
+        <div id="mFriends" class="sheet-friends"></div>
+      </div>
+
+      <div id="mapStatus" class="map-status hidden"></div>
+    </div>
+  </section>
+
+  <!-- JOB -->
+  <section id="tab-job" class="tab">
+    <div class="card">
+      <div class="card-h">Current job</div>
+      <div class="job-leg">
+        <div class="pin from"></div>
+        <div><div id="jFromCity" class="city">--</div><div id="jFromCo" class="muted">--</div></div>
+      </div>
+      <div class="job-line"></div>
+      <div class="job-leg">
+        <div class="pin to"></div>
+        <div><div id="jToCity" class="city">--</div><div id="jToCo" class="muted">--</div></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-h">Income</div><div id="jIncome" class="big">--</div></div>
+      <div class="card"><div class="card-h">Time left</div><div id="jRemain" class="big">--</div><div id="jDeadline" class="muted small">--</div></div>
+      <div class="card"><div class="card-h">Distance</div><div id="jDist" class="big">--</div></div>
+      <div class="card"><div class="card-h">ETA</div><div id="jEta" class="big">--</div></div>
+    </div>
+    <div class="card">
+      <div class="card-h">Trailer</div>
+      <div class="row"><span id="trName">--</span><span id="trMass" class="muted">--</span></div>
+      <div class="wear-row"><span>Damage</span><div class="bar thin"><i id="trWear"></i></div><b id="trWearT">0%</b></div>
+    </div>
+    <div class="card">
+      <div class="card-h">Rest</div>
+      <div class="row"><span>Next rest stop in</span><b id="restIn">--</b></div>
+    </div>
+  </section>
+
+  <!-- TRUCK -->
+  <section id="tab-truck" class="tab">
+    <div class="card">
+      <div class="card-h"><span id="truckName">--</span><span id="odo" class="muted">-- km</span></div>
+      <div class="pedals">
+        <div><div class="vbar"><i id="pThrottle"></i></div><span>THR</span></div>
+        <div><div class="vbar brake"><i id="pBrake"></i></div><span>BRK</span></div>
+        <div><div class="vbar clutch"><i id="pClutch"></i></div><span>CLU</span></div>
+        <div class="steer"><svg id="steerWheel" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/><circle cx="24" cy="24" r="5"/><path d="M4 24h15M29 24h15M24 29v15"/></svg><span>STEER</span></div>
+      </div>
+    </div>
+    <div class="grid2" id="gauges">
+      <div class="card mini" id="gAir"><div class="card-h">Air</div><div class="big"><span id="vAir">--</span><small> psi</small></div></div>
+      <div class="card mini" id="gOilP"><div class="card-h">Oil pressure</div><div class="big"><span id="vOilP">--</span><small> psi</small></div></div>
+      <div class="card mini" id="gOilT"><div class="card-h">Oil temp</div><div class="big"><span id="vOilT">--</span><small> °C</small></div></div>
+      <div class="card mini" id="gWater"><div class="card-h">Water temp</div><div class="big"><span id="vWater">--</span><small> °C</small></div></div>
+      <div class="card mini" id="gBatt"><div class="card-h">Battery</div><div class="big"><span id="vBatt">--</span><small> V</small></div></div>
+      <div class="card mini" id="gBrakeT"><div class="card-h">Brake temp</div><div class="big"><span id="vBrakeT">--</span><small> °C</small></div></div>
+      <div class="card mini" id="gAdblue"><div class="card-h">AdBlue</div><div class="big"><span id="vAdblue">--</span><small> L</small></div></div>
+      <div class="card mini"><div class="card-h">Avg fuel</div><div class="big"><span id="vAvg">--</span><small> L/100</small></div></div>
+    </div>
+    <div class="card">
+      <div class="card-h">Wear</div>
+      <div class="wear-row"><span>Engine</span><div class="bar thin"><i id="wEngine"></i></div><b id="wEngineT">0%</b></div>
+      <div class="wear-row"><span>Transmission</span><div class="bar thin"><i id="wTrans"></i></div><b id="wTransT">0%</b></div>
+      <div class="wear-row"><span>Cabin</span><div class="bar thin"><i id="wCabin"></i></div><b id="wCabinT">0%</b></div>
+      <div class="wear-row"><span>Chassis</span><div class="bar thin"><i id="wChassis"></i></div><b id="wChassisT">0%</b></div>
+      <div class="wear-row"><span>Wheels</span><div class="bar thin"><i id="wWheels"></i></div><b id="wWheelsT">0%</b></div>
+    </div>
+  </section>
+
+  <div id="overlay" class="overlay">
+    <div class="overlay-box">
+      <div class="spinner"></div>
+      <div id="overlayText">Waiting for server…</div>
+      <div class="muted small" id="overlayHint"></div>
+    </div>
+  </div>
+</main>
+
+<div id="fsSheet" class="sheet hidden">
+  <div class="sheet-box">
+    <h3>เปิดแบบเต็มจอ</h3>
+    <ol id="fsSteps">
+      <li>กดปุ่ม <b>Share</b> (สี่เหลี่ยมมีลูกศรชี้ขึ้น) ใน Safari</li>
+      <li>เลือก <b>Add to Home Screen</b></li>
+      <li>เปิดจากไอคอน Truck Dash บนหน้าจอโฮม จะเต็มจอเอง</li>
+    </ol>
+    <button id="fsClose">เข้าใจแล้ว</button>
+  </div>
+</div>
+
+<nav class="tabbar">
+  <button data-tab="drive" class="active">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13l4-4"/></svg><span>Drive</span></button>
+  <button data-tab="map">
+    <svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14"/></svg><span>Map</span></button>
+  <button data-tab="job">
+    <svg viewBox="0 0 24 24"><path d="M4 8h16v11H4zM9 8V5h6v3"/></svg><span>Job</span></button>
+  <button data-tab="truck">
+    <svg viewBox="0 0 24 24"><path d="M3 6h11v9H3zM14 9h4l3 3v3h-7zM7 18a1.5 1.5 0 1 0 0 .1M17 18a1.5 1.5 0 1 0 0 .1"/></svg><span>Truck</span></button>
+</nav>
+
+<script src="room-config.js"></script>
+<script src="room.js"></script>
+<script src="map.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
