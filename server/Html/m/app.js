@@ -160,7 +160,12 @@
     var navKm = n.estimatedDistance / 1000;
     setText('navDist', navKm > 0 ? dist(navKm) : '--');
     var eta = durMs(n.estimatedTime);
-    setText('navTime', eta > 0 ? 'ETA ' + fmtDur(eta) : '--');
+    // the game's ETA is in game time; game time runs timeScale x faster (~15-19x) -> real minutes / clock
+    var scale = g.timeScale > 0 ? g.timeScale : 19;
+    var etaReal = eta > 0 ? eta / scale : 0;
+    var arriveReal = etaReal > 0 ? new Date(Date.now() + etaReal) : null;
+    var arriveTxt = arriveReal ? pad(arriveReal.getHours()) + ':' + pad(arriveReal.getMinutes()) : '';
+    setText('navTime', eta > 0 ? 'ถึง ' + arriveTxt + ' · ' + fmtTrip(etaReal) : '--');
 
     // job
     var hasJob = !!(j && j.destinationCity);
@@ -178,7 +183,8 @@
     setText('jRemain', hasJob ? fmtDur(remain) : '--');
     setText('jDeadline', hasJob ? 'Deadline ' + fmtGameTime(j.deadlineTime) : '--');
     setText('jDist', navKm > 0 ? dist(navKm) : '--');
-    setText('jEta', eta > 0 ? fmtDur(eta) : '--');
+    setText('jEta', eta > 0 ? arriveTxt : '--');
+    setText('jEtaSub', eta > 0 ? 'อีก ' + fmtTrip(etaReal) + ' · เกม ' + fmtDur(eta) : '');
 
     setText('trName', tr.attached ? (tr.name || tr.id) : 'No trailer');
     setText('trMass', tr.attached ? (tr.mass / 1000).toFixed(1) + ' t' : '');
@@ -191,11 +197,12 @@
     setText('mUnit', units === 'mph' ? 'mph' : 'km/h');
     $('mLimit').classList.toggle('hidden', !limit);
     if (limit) setText('mLimitVal', String(Math.round(spd(limit))));
-    // Google-style bottom sheet: big trip time, then distance · arrival clock (game time)
+    // Google-style bottom sheet: big real trip time, then distance · real arrival clock · game arrival
     var hasNav = navKm > 0;
-    setText('mEta', hasNav && eta > 0 ? fmtTrip(eta) : (hasNav ? dist(navKm) : 'ไม่มีเส้นทาง'));
+    setText('mEta', hasNav && eta > 0 ? fmtTrip(etaReal) : (hasNav ? dist(navKm) : 'ไม่มีเส้นทาง'));
     var arrive = new Date(Date.parse(g.time) + eta);
-    setText('mDist', hasNav ? dist(navKm) + (eta > 0 && !isNaN(arrive) ? ' · ถึง ~' + pad(arrive.getUTCHours()) + ':' + pad(arrive.getUTCMinutes()) : '') : 'ปัก waypoint ในเกม แล้วกด F5');
+    var gameArr = !isNaN(arrive) ? ' · เกม ~' + pad(arrive.getUTCHours()) + ':' + pad(arrive.getUTCMinutes()) : '';
+    setText('mDist', hasNav ? dist(navKm) + (eta > 0 ? ' · ถึง ' + arriveTxt + gameArr : '') : 'ปัก waypoint ในเกม แล้วกด F5');
     toggle('mapSheet', 'idle', !hasNav);
     window.TruckMap.update(d);
 
@@ -299,7 +306,7 @@
       var gear = Math.min(12, Math.max(1, Math.round(speed / 8)));
       var blink = Math.floor(s * 2) % 2 === 0 && Math.floor(s / 8) % 3 === 0;
       handle({
-        game: { connected: true, paused: false, time: new Date(game + s * 19000).toISOString().replace(/^\+?0*(\d{4})/, '$1'), nextRestStopTime: '0001-01-01T07:40:00Z' },
+        game: { connected: true, paused: false, timeScale: 19, time: new Date(game + s * 19000).toISOString().replace(/^\+?0*(\d{4})/, '$1'), nextRestStopTime: '0001-01-01T07:40:00Z' },
         truck: {
           make: 'Demo', model: 'Truck', speed: speed, cruiseControlSpeed: 80, cruiseControlOn: speed > 75,
           odometer: 105830 + s * 0.02, displayedGear: gear, reverseGears: 1, shifterType: 'arcade',
@@ -386,7 +393,7 @@
   // Room-only mode (no local telemetry, e.g. opened from Vercel): "our" truck is the member named
   // MY_NAME, fed from its ~1/s broadcasts. Without a name (spectator) follow the first one online.
   var DEF = {
-    game: { connected: true, paused: false, time: '', nextRestStopTime: '' },
+    game: { connected: true, paused: false, time: '', nextRestStopTime: '', timeScale: 19 },
     truck: {
       make: '', model: '', speed: 0, cruiseControlSpeed: 0, cruiseControlOn: false, odometer: 0, displayedGear: 0, reverseGears: 1, shifterType: '',
       engineRpm: 0, engineRpmMax: 2500, fuel: 0, fuelCapacity: 0, fuelAverageConsumption: 0, fuelWarningFactor: 0.15, fuelWarningOn: false,

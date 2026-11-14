@@ -111,7 +111,7 @@ function scalars(o) {
 function dashOf(d, full) {
   const t = scalars(d.truck), n = d.navigation;
   const nav = { estimatedTime: n.estimatedTime, estimatedDistance: Math.round(n.estimatedDistance), speedLimit: n.speedLimit };
-  const game = { time: d.game.time, paused: d.game.paused, nextRestStopTime: d.game.nextRestStopTime };
+  const game = { time: d.game.time, paused: d.game.paused, nextRestStopTime: d.game.nextRestStopTime, timeScale: d.game.timeScale };
   if (full) return { full: true, game, truck: t, trailer: scalars(d.trailer), job: scalars(d.job), navigation: nav };
   const fast = {};
   for (const k of FAST_TRUCK) if (k in t) fast[k] = t[k];
