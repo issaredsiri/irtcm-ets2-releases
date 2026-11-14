@@ -43,7 +43,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; }
 .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .dot.warn { background: var(--amber); }
-.game-time { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.game-time { display: flex; flex-direction: column; align-items: center; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.game-time b { font-size: 15px; font-weight: 700; }
+.game-time small { font-size: 10px; color: var(--muted); }
 .actions { display: flex; gap: 6px; align-items: center; }
 .chip { padding: 5px 10px; border-radius: 999px; background: var(--card2); font-size: 12px; font-weight: 600; }
 .icon-btn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: var(--card2); }

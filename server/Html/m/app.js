@@ -48,11 +48,20 @@
     if (h >= 24) return Math.floor(h / 24) + ' วัน ' + (h % 24) + ' ชม.';
     return h > 0 ? h + ' ชม. ' + (m % 60) + ' นาที' : Math.max(1, m) + ' นาที';
   }
+  // The plugin counts game minutes from 0001-01-01 (a Monday in JS), but the game's own clock is one weekday
+  // earlier (checked in game: plugin day 32 -> game shows Thu). In convoy the plugin's time also drifts from
+  // the clock on screen, so it is shown as approximate, next to the real clock.
   function fmtGameTime(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return '--';
-    return DAYS[d.getUTCDay()] + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+    return DAYS[(d.getUTCDay() + 6) % 7] + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
   }
+  function tickRealClock() {
+    var n = new Date();
+    setText('realTime', pad(n.getHours()) + ':' + pad(n.getMinutes()));
+  }
+  tickRealClock();
+  setInterval(tickRealClock, 5000);
   var KM_MI = 0.621371;
   function spd(kmh) { return units === 'mph' ? kmh * KM_MI : kmh; }
   function dist(km) {
@@ -93,7 +102,7 @@
   function render(d) {
     var g = d.game, t = d.truck, tr = d.trailer, j = d.job, n = d.navigation;
 
-    setText('gameTime', fmtGameTime(g.time) + (g.paused ? ' · paused' : ''));
+    setText('gameClock', 'เกม ~' + fmtGameTime(g.time) + (g.paused ? ' · หยุด' : ''));
     setText('connText', (t.make ? t.make + ' ' + t.model : 'Connected'));
 
     // speed
@@ -185,7 +194,7 @@
     var hasNav = navKm > 0;
     setText('mEta', hasNav && eta > 0 ? fmtTrip(eta) : (hasNav ? dist(navKm) : 'ไม่มีเส้นทาง'));
     var arrive = new Date(Date.parse(g.time) + eta);
-    setText('mDist', hasNav ? dist(navKm) + (eta > 0 && !isNaN(arrive) ? ' · ถึง ' + pad(arrive.getUTCHours()) + ':' + pad(arrive.getUTCMinutes()) : '') : 'ปัก waypoint ในเกม แล้วกด F5');
+    setText('mDist', hasNav ? dist(navKm) + (eta > 0 && !isNaN(arrive) ? ' · ถึง ~' + pad(arrive.getUTCHours()) + ':' + pad(arrive.getUTCMinutes()) : '') : 'ปัก waypoint ในเกม แล้วกด F5');
     toggle('mapSheet', 'idle', !hasNav);
     window.TruckMap.update(d);
 
