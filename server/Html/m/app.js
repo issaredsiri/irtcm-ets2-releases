@@ -461,7 +461,7 @@
     if (roomLink.state() === 'error') { showPicker([]); setStatus('off', 'เข้าห้องไม่ได้', 'เช็ค Supabase URL / anon key ใน room-config.js'); return; }
     var online = roomLink.members().filter(function (m) { return m.online && m.pos; });
     if (!me || !me.online || !me.pos) {
-      CONN_PREFIX = '';
+      CONN_PREFIX = ''; roomCur = roomPrev = null;
       if (roomLink.state() !== 'ok') { showPicker([]); setStatus('game', 'กำลังเชื่อมต่อห้อง…', 'ห้อง ' + ROOM); return; }
       if (online.length && !me) {
         // name missing or not in the room: let the player say who they are
@@ -478,8 +478,35 @@
     showPicker([]);
     CONN_PREFIX = me.name + ' · ';
     window.TruckMap.setSelfPlan(me.plan);
-    if (me.pos.t !== lastSelfT) { lastSelfT = me.pos.t; handle(fromRoom(me.name, me.pos)); }
+    if (me.pos.t !== lastSelfT) { lastSelfT = me.pos.t; roomSample(fromRoom(me.name, me.pos)); }
   }
+
+  // Room updates arrive ~4/s: render 10/s, sliding gauges and position from the previous sample to the
+  // newest over the time between them (one update behind, but no jumps).
+  var roomPrev = null, roomCur = null;
+  var LERP = ['speed', 'engineRpm', 'gameSteer', 'gameThrottle', 'gameBrake', 'gameClutch', 'fuel', 'airPressure'];
+  function roomSample(d) {
+    roomPrev = roomCur;
+    roomCur = { d: d, t: performance.now() };
+    if (!roomPrev) handle(d);
+  }
+  function roomFrame() {
+    if (!roomCur || !roomPrev) return;
+    var span = Math.min(3000, Math.max(100, roomCur.t - roomPrev.t));
+    var f = Math.min(1, (performance.now() - roomCur.t) / span);
+    var a = roomPrev.d.truck, b = roomCur.d.truck, t = {}, k;
+    for (k in b) t[k] = b[k];
+    LERP.forEach(function (n) { if (typeof a[n] === 'number' && typeof b[n] === 'number') t[n] = a[n] + (b[n] - a[n]) * f; });
+    var pa = a.placement, pb = b.placement;
+    if (pa && pb && Math.hypot(pb.x - pa.x, pb.z - pa.z) < 500) {
+      var dh = pb.heading - pa.heading; dh -= Math.round(dh);
+      t.placement = { x: pa.x + (pb.x - pa.x) * f, y: 0, z: pa.z + (pb.z - pa.z) * f, heading: ((pa.heading + dh * f) % 1 + 1) % 1 };
+    }
+    var d = {}; for (k in roomCur.d) d[k] = roomCur.d[k];
+    d.truck = t;
+    handle(d);
+  }
+  setInterval(roomFrame, 100);
 
   // ?demo&friends: a fake room (same API as RoomLink) to preview the multi-player map without Supabase
   // Routes come from the route server (real roads), like a real bridge would send them:

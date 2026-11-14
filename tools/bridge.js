@@ -2,7 +2,7 @@
 /*
  * Truck Dash bridge: runs on every player's PC and pushes this truck into the shared room.
  *
- *   localhost:25555 /api/ets2/telemetry  -> "pos"  (~1/s while moving, every 5 s when parked)
+ *   localhost:25555 /api/ets2/telemetry  -> "pos"  (4/s while moving, every 2 s when parked)
  *   localhost:25556 /gps + /route        -> "plan" (on a new save, and every 10 s for late joiners)
  *
  * Sends through the Supabase Realtime REST broadcast endpoint, so it never receives messages
@@ -22,7 +22,8 @@ const CONFIG_FILE = path.join(__dirname, 'bridge.config.json');
 const ROOM_CONFIG = path.join(ROOT, 'server', 'Html', 'm', 'room-config.js');
 const TELEMETRY = 'http://localhost:25555/api/ets2/telemetry';
 const ROUTE = 'http://localhost:25556';
-const POS_MS = 1000, PARKED_MS = 5000, PLAN_MS = 10000, GPS_MS = 3000;
+// 4 updates/s while driving: ~12 h of 3 players / 3 phones per month on the Supabase free tier
+const POS_MS = 250, PARKED_MS = 2000, PLAN_MS = 10000, GPS_MS = 3000;
 const MAX_PLAN_BYTES = 200 * 1024;   // Realtime messages are capped at 256 KB
 
 // ---------- config ----------
@@ -154,7 +155,14 @@ function dashOf(d, full) {
 
   let truck = null, job = null, telemetryOk = false, gameOk = false;
   let lastPos = 0, lastSent = null, lastFull = 0;
+  let posBusy = false;   // one request at a time: a slow network lowers the rate instead of piling up
   async function tickPos() {
+    if (posBusy) return;
+    posBusy = true;
+    try { await tickPosOnce(); } finally { posBusy = false; }
+  }
+  async function tickPosOnce() {
+    if (Date.now() - lastPos < POS_MS) return;   // not due yet: skip reading telemetry
     try {
       const d = await getJson(TELEMETRY);
       telemetryOk = true;
@@ -229,7 +237,7 @@ function dashOf(d, full) {
     }
   }
 
-  setInterval(tickPos, 250);
+  setInterval(tickPos, 50);
   setInterval(tickPlan, GPS_MS);
   tickPlan();
 
