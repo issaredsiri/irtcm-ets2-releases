@@ -379,3 +379,13 @@ main {
   .ind svg { width: 22px; height: 22px; }
   .card-f { font-size: 15px; }
 }
+
+/* room: "which one is you?" picker in the overlay */
+.overlay-pick { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+.overlay-pick button {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px;
+  background: var(--card2); border: 1px solid var(--line); font-weight: 700; font-size: 15px;
+}
+.overlay-pick button:active { border-color: var(--accent); }
+.overlay-pick i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.overlay-link { font-size: 12px; color: var(--muted); text-decoration: underline; margin-top: 4px; }

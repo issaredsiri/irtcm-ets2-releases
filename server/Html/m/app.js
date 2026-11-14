@@ -25,6 +25,7 @@
   var ROOM = storeGet('room', ''), MY_NAME = storeGet('name', '');
   var RC = window.ROOM_CONFIG || {};
   var ROOM_ON = !!(ROOM && RC.supabaseUrl && RC.supabaseAnonKey && window.RoomLink);
+  var CONN_PREFIX = '';   // "Name · " in the top bar when our truck comes from the room
 
   var units = storeGet('units', 'kmh'); // kmh | mph
 
@@ -103,7 +104,7 @@
     var g = d.game, t = d.truck, tr = d.trailer, j = d.job, n = d.navigation;
 
     setText('gameClock', 'เกม ~' + fmtGameTime(g.time) + (g.paused ? ' · หยุด' : ''));
-    setText('connText', (t.make ? t.make + ' ' + t.model : 'Connected'));
+    setText('connText', CONN_PREFIX + (t.make ? t.make + ' ' + t.model : 'Connected'));
 
     // speed
     var kmh = Math.abs(t.speed);
@@ -417,24 +418,58 @@
   }
 
   var roomLink = null, lastSelfT = 0;
+  // Who "we" are in the room = the member whose name matches ours (case / spaces ignored). Never guess:
+  // showing somebody else's truck as ours (same values on every phone) is worse than asking.
+  function key(n) { return String(n || '').trim().toLowerCase(); }
   function roomSelf() {
-    var me = MY_NAME && roomLink.member(MY_NAME);
-    if (me && me.pos) return me;
-    if (API) return null;
-    var on = roomLink.members().filter(function (m) { return m.online && m.pos; });
-    on.sort(function (a, b) { return a.name.localeCompare(b.name); });
-    return on[0] || me || null;
+    var k = key(MY_NAME);
+    if (!k) return null;
+    return roomLink.members().filter(function (m) { return key(m.name) === k; })[0] || null;
+  }
+  function pickName(n) {
+    MY_NAME = n; storeSet('name', n);
+    lastSelfT = 0;
+    window.TruckMap.setRoom(roomLink, n);
+    onRoom();
+  }
+  // overlay list "which one is you?" of the members currently in the room
+  function showPicker(list) {
+    var el = $('overlayPick'), sig = list.map(function (m) { return m.name; }).join('|');
+    if (el._sig === sig) return;
+    el._sig = sig;
+    el.innerHTML = '';
+    list.forEach(function (m) {
+      var b = document.createElement('button');
+      b.innerHTML = '<i style="background:' + m.color + '"></i>';
+      b.appendChild(document.createTextNode(m.name));
+      b.addEventListener('click', function () { pickName(m.name); });
+      el.appendChild(b);
+    });
+    el.classList.toggle('hidden', !list.length);
   }
   function onRoom() {
     if (API) return;   // local telemetry drives our truck; the room only adds friends
     var me = roomSelf();
     window.TruckMap.setSelf(me ? me.name : MY_NAME);
-    if (roomLink.state() === 'error') { setStatus('off', 'เข้าห้องไม่ได้', 'เช็ค Supabase URL / anon key ใน room-config.js'); return; }
-    if (!me || !me.online) {
-      setStatus('game', roomLink.state() === 'ok' ? (MY_NAME ? 'รอ ' + MY_NAME + ' เข้าเกม…' : 'ยังไม่มีใครออนไลน์ในห้อง') : 'กำลังเชื่อมต่อห้อง…',
-        'ห้อง ' + ROOM + ' · ต้องเปิด Start Dashboard.bat (มี bridge) บน PC ของคนขับ');
+    if (roomLink.state() === 'error') { showPicker([]); setStatus('off', 'เข้าห้องไม่ได้', 'เช็ค Supabase URL / anon key ใน room-config.js'); return; }
+    var online = roomLink.members().filter(function (m) { return m.online && m.pos; });
+    if (!me || !me.online || !me.pos) {
+      CONN_PREFIX = '';
+      if (roomLink.state() !== 'ok') { showPicker([]); setStatus('game', 'กำลังเชื่อมต่อห้อง…', 'ห้อง ' + ROOM); return; }
+      if (online.length && !me) {
+        // name missing or not in the room: let the player say who they are
+        showPicker(online);
+        setStatus('game', MY_NAME ? 'ไม่พบชื่อ "' + MY_NAME + '" ในห้อง' : 'คุณคือใคร?',
+          'แตะชื่อของคุณ (ชื่อเดียวกับที่ตั้งใน Truck Dash บน PC) · ห้อง ' + ROOM);
+        return;
+      }
+      showPicker(online.filter(function (m) { return !me || m.name !== me.name; }));
+      setStatus('game', MY_NAME ? 'รอ ' + MY_NAME + ' เข้าเกม…' : 'ยังไม่มีใครออนไลน์ในห้อง',
+        'ห้อง ' + ROOM + ' · เปิด Truck Dash บน PC ของคุณ แล้วเข้าเกม' + (online.length ? ' · หรือแตะชื่อด้านล่างถ้าตั้งชื่อไว้ต่างกัน' : ''));
       return;
     }
+    showPicker([]);
+    CONN_PREFIX = me.name + ' · ';
     window.TruckMap.setSelfPlan(me.plan);
     if (me.pos.t !== lastSelfT) { lastSelfT = me.pos.t; handle(fromRoom(me.name, me.pos)); }
   }
